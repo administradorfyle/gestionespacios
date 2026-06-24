@@ -24,6 +24,9 @@ const PLANTA_LABEL = {baja:"Planta baja",entreplanta:"Entreplanta",primera:"Prim
 let dirHandle = null;
 let DB = null;              // {version, espacios:[], reservas:[], eliminadas:[]}
 let fsSupported = "showDirectoryPicker" in window;
+let lastSig = null;         // firma (lastModified:size) del archivo ya cargado
+let pollTimer = null;
+const POLL_MS = 5000;       // cada cuánto se comprueba el archivo en disco
 
 /* =========================================================================
    Utilidades de tiempo
@@ -139,6 +142,7 @@ async function saveData(){
       const w=await fh.createWritable(); await w.write(JSON.stringify(DB,null,2)); await w.close(); })();
     await pruneCopies(cdir);
   }catch(e){ /* la copia es best-effort */ }
+  await rememberSignature();   // evita que el sondeo trate nuestro propio guardado como cambio externo
   updateStatus();
 }
 
@@ -181,7 +185,46 @@ async function connectFolder(reuse){
 }
 
 async function changeFolder(){ dirHandle=null; await idbSet("dirHandle",null); await connectFolder(false); }
-async function reload(){ try{ DB=await readMainFile(); render(); toast("Datos recargados","ok"); }catch{ toast("No se pudo recargar","err"); } }
+async function reload(){ try{ DB=await readMainFile(); await rememberSignature(); render(); toast("Datos recargados","ok"); }catch{ toast("No se pudo recargar","err"); } }
+
+/* =========================================================================
+   Actualización automática: comprueba el archivo en disco cada POLL_MS y, si
+   otra persona/equipo lo ha cambiado (vía OneDrive), recarga los datos sin que
+   el usuario tenga que refrescar. La rapidez la limita la sincronización de
+   OneDrive entre equipos; aquí solo eliminamos el refresco manual.
+   ========================================================================= */
+async function fileSignature(){
+  try{
+    const fh=await dirHandle.getFileHandle(FILE_NAME,{create:false});
+    const f=await fh.getFile();
+    return `${f.lastModified}:${f.size}`;
+  }catch{ return null; }
+}
+async function rememberSignature(){ lastSig=await fileSignature(); }
+
+function startAutoSync(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer=setInterval(checkForUpdates,POLL_MS);
+  // comprobación inmediata al volver a la pestaña del navegador
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkForUpdates(); });
+}
+
+const LIVE_VIEWS=new Set(["disponibilidad","espacios","datos"]); // se repintan solas sin molestar
+async function checkForUpdates(){
+  if(!dirHandle || !DB) return;
+  const sig=await fileSignature();
+  if(sig===null || sig===lastSig) return;            // sin cambios (o archivo no disponible aún)
+  let fresh;
+  try{ fresh=await readMainFile(); }
+  catch{ return; }                                   // OneDrive puede tenerlo bloqueado: se reintenta al siguiente ciclo
+  lastSig=sig;
+  DB=fresh;
+  updateStatus();
+  // No interrumpimos un diálogo abierto ni un formulario a medio rellenar.
+  if($("#modalBg").classList.contains("show")) return;
+  if(LIVE_VIEWS.has(currentView)) render();
+  else toast("Datos actualizados desde otro equipo","warn");
+}
 
 /* =========================================================================
    Lógica de reservas
@@ -221,11 +264,13 @@ const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 let currentView="reservar";
 const main=$("#main");
 
-function enterApp(){
+async function enterApp(){
   $("#gate").style.display="none";
   $("#app").classList.add("ready");
   updateStatus();
   render();
+  await rememberSignature();
+  startAutoSync();
 }
 function updateStatus(){
   const dot=$("#statusDot"), txt=$("#statusTxt");
@@ -646,6 +691,7 @@ function viewDatos(){
   <div class="panel">
     <h3 style="font-size:17px;margin-bottom:8px">Cómo funciona la sincronización</h3>
     <p class="hint" style="font-size:13.5px">La app lee y escribe el archivo directamente en tu carpeta. Si está dentro de OneDrive, los cambios llegan al resto de personas cuando OneDrive sincroniza. Antes de cada guardado, la app vuelve a leer el archivo del disco y combina por reserva, de modo que se reduce el riesgo de pisar cambios de otra persona. Además, cada guardado deja una copia con fecha y hora en la subcarpeta <b>${COPIES_DIR}/</b> (se conservan las últimas ${MAX_COPIES}); si algún día falta el archivo principal, al conectar te ofrece restaurarlo desde la copia más reciente.</p>
+    <p class="hint" style="font-size:13.5px;margin-top:8px"><b>Actualización automática:</b> la app revisa el archivo cada ${POLL_MS/1000} segundos y, si otra persona ha hecho un cambio, recarga los datos sola, sin refrescar. La rapidez depende de lo que tarde OneDrive en propagar el archivo entre equipos. Para que vaya lo más fino posible, en el Explorador haz clic derecho sobre la carpeta de datos y elige <b>«Conservar siempre en este dispositivo»</b>.</p>
     <p class="hint" style="font-size:13.5px;margin-top:8px">Requisito: navegador de escritorio basado en Chromium (Chrome, Edge u Opera). Conviene desplegar en GitHub Pages (HTTPS).</p>
   </div>`;
   $("#dReload").addEventListener("click",reload);
