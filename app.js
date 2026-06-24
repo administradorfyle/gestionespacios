@@ -209,7 +209,7 @@ function startAutoSync(){
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkForUpdates(); });
 }
 
-const LIVE_VIEWS=new Set(["disponibilidad","espacios","datos"]); // se repintan solas sin molestar
+const LIVE_VIEWS=new Set(["disponibilidad","dispdias","espacios","datos"]); // se repintan solas sin molestar
 async function checkForUpdates(){
   if(!dirHandle || !DB) return;
   const sig=await fileSignature();
@@ -288,7 +288,7 @@ $("#nav").addEventListener("click",e=>{
 
 function render(){
   if(!DB) return;
-  ({reservar:viewReservar,disponibilidad:viewDisponibilidad,buscar:viewBuscar,
+  ({reservar:viewReservar,disponibilidad:viewDisponibilidad,dispdias:viewDispDias,buscar:viewBuscar,
     consultas:viewConsultas,espacios:viewEspacios,datos:viewDatos}[currentView]||viewReservar)();
 }
 
@@ -398,14 +398,14 @@ async function submitReserva(){
 }
 
 /* =========================================================================
-   VISTA · Disponibilidad  (rejilla semanal, solo motivo)
+   VISTA · Disponibilidad por aulas  (un aula, semana completa; solo motivo)
    ========================================================================= */
 let dispEsp=null, dispWeek=null;
 function viewDisponibilidad(){
   if(!dispEsp) dispEsp=DB.espacios.slice().sort(byNombre)[0]?.id;
   if(!dispWeek) dispWeek=mondayOf(todayISO());
   main.innerHTML=`
-  <div class="head"><div><h1>Disponibilidad</h1><p>Rejilla semanal del espacio. Verde = libre (clic para reservar) · azul = ocupado (clic para ver el detalle).</p></div></div>
+  <div class="head"><div><h1>Disponibilidad por aulas</h1><p>Una aula a lo largo de la semana. Verde = libre (clic para reservar) · azul = ocupado (clic para ver el detalle).</p></div></div>
   <div class="panel">
     <div class="row" style="margin-bottom:6px">
       <div style="flex:2"><label class="fld">Espacio</label><select id="dEsp">${espacioOptions(dispEsp)}</select></div>
@@ -460,9 +460,65 @@ function drawCalendar(){
 }
 
 /* =========================================================================
-   VISTA · Buscar espacio  (búsqueda inversa por requisitos)
+   VISTA · Disponibilidad por días  (un día, todas las aulas en columnas)
+   Horas a la izquierda, aulas arriba (scroll lateral) y calendario de día.
    ========================================================================= */
-let lastSearch=null;
+let dispDay=null;
+function viewDispDias(){
+  if(!dispDay) dispDay=todayISO();
+  main.innerHTML=`
+  <div class="head"><div><h1>Disponibilidad por días</h1><p>Todas las aulas en un mismo día. Verde = libre (clic para reservar) · azul = ocupado (clic para ver el detalle). Desplázate lateralmente para ver más aulas.</p></div></div>
+  <div class="panel">
+    <div class="row" style="margin-bottom:6px">
+      <div><label class="fld">Día</label><input type="date" id="ddDay" value="${dispDay}"></div>
+      <div style="flex:0"><button class="btn btn-ghost" id="ddPrev">◀</button></div>
+      <div style="flex:0"><button class="btn btn-ghost" id="ddNext">▶</button></div>
+      <div style="flex:1;display:flex;align-items:flex-end;justify-content:flex-end;color:var(--muted);font-size:13.5px;padding-bottom:10px;font-weight:600">${fmtDate(dispDay).replace(/^./,c=>c.toUpperCase())}</div>
+    </div>
+    <div id="dayMount"></div>
+    <div class="legend"><span><i style="background:var(--free-bg);border:1px solid var(--free-line)"></i>Libre</span><span><i style="background:var(--occ)"></i>Ocupado</span></div>
+  </div>`;
+  $("#ddDay").addEventListener("change",e=>{ dispDay=e.target.value; render(); });
+  $("#ddPrev").addEventListener("click",()=>{ dispDay=addDays(dispDay,-1); render(); });
+  $("#ddNext").addEventListener("click",()=>{ dispDay=addDays(dispDay,1); render(); });
+  drawDayGrid();
+}
+
+function drawDayGrid(){
+  const starts=slotStarts();
+  const espacios=DB.espacios.slice().sort(byNombre);
+  if(!espacios.length){ $("#dayMount").innerHTML=`<div class="empty"><b>No hay espacios</b>Crea espacios en la pestaña «Espacios».</div>`; return; }
+  // reservas de cada espacio en el día, indexadas por hora de inicio
+  const byEsp=espacios.map(e=>{ const m={}; reservasDe(e.id,dispDay).forEach(r=>m[r.inicio]=r); return m; });
+  const skip=espacios.map(()=>0);
+  let body="";
+  starts.forEach(s=>{
+    let row=`<td class="time">${s}</td>`;
+    for(let c=0;c<espacios.length;c++){
+      if(skip[c]>0){ skip[c]--; continue; }
+      const r=byEsp[c][s];
+      if(r){
+        const span=Math.max(1,(t2m(r.fin)-t2m(r.inicio))/STEP_MIN);
+        skip[c]=span-1;
+        row+=`<td class="occ" rowspan="${span}" data-id="${r.id}"><div>${esc(r.motivo)}</div><div class="t">${r.inicio}–${r.fin}</div></td>`;
+      }else{
+        row+=`<td class="free" data-esp="${espacios[c].id}" data-ini="${s}"></td>`;
+      }
+    }
+    body+=`<tr>${row}</tr>`;
+  });
+  const headCols=espacios.map(e=>`<th title="${esc(e.nombre)} · ${PLANTA_LABEL[e.planta]} · ${e.capacidad} pax">${esc(e.nombre)}<small>${e.capacidad} pax</small></th>`).join("");
+  $("#dayMount").innerHTML=`<div class="gridwrap gridwrap-day"><table class="cal cal-day"><thead><tr><th class="corner"></th>${headCols}</tr></thead><tbody>${body}</tbody></table></div>`;
+  $("#dayMount").addEventListener("click",e=>{
+    const occ=e.target.closest("td.occ"); if(occ){ openReservaDetail(occ.dataset.id); return; }
+    const free=e.target.closest("td.free");
+    if(free){
+      const ini=free.dataset.ini, fin=m2t(t2m(ini)+STEP_MIN);
+      prefill={espacioId:free.dataset.esp,fecha:dispDay,inicio:ini,fin};
+      currentView="reservar"; $$("#nav button").forEach(x=>x.classList.toggle("active",x.dataset.view==="reservar")); render();
+    }
+  });
+}
 function viewBuscar(){
   const s=lastSearch||{fecha:todayISO(),inicio:"09:00",fin:"11:00",cap:"",planta:"",dot:""};
   main.innerHTML=`

@@ -6,7 +6,6 @@
 <title>Gestión de Espacios · Facultad de Filosofía y Letras</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="icon" type="image/png" href="logo.png">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 <style>
   :root{
@@ -102,6 +101,14 @@
   /* ---------- Weekly availability grid ---------- */
   .gridwrap{overflow:auto;border:1px solid var(--line);border-radius:12px}
   table.cal{border-collapse:collapse;min-width:760px;table-layout:fixed}
+  /* Rejilla por días: muchas aulas en columnas, scroll lateral, cabecera y horas fijas */
+  .gridwrap-day{max-height:72vh}
+  table.cal-day{table-layout:auto;min-width:max-content}
+  table.cal-day th,table.cal-day td{min-width:120px}
+  table.cal-day thead th{position:sticky;top:0;z-index:3}
+  table.cal-day td.time,table.cal-day th.corner{position:sticky;left:0;z-index:2;width:62px;min-width:62px}
+  table.cal-day th.corner{top:0;z-index:5;background:#fafbff}
+  table.cal-day thead th small{font-weight:600}
   table.cal th,table.cal td{border:1px solid var(--line);padding:0;text-align:center}
   table.cal thead th{background:#fafbff;padding:9px 4px;font-size:12px}
   table.cal thead th small{display:block;color:var(--muted);font-weight:600;font-size:11px}
@@ -198,7 +205,8 @@
     </div>
     <nav class="nav" id="nav">
       <button data-view="reservar" class="active"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Reservar</span></button>
-      <button data-view="disponibilidad"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span>Disponibilidad</span></button>
+      <button data-view="disponibilidad"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg><span>Disponibilidad por aulas</span></button>
+      <button data-view="dispdias"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M9 4v17M15 4v17M3 10h18"/></svg><span>Disponibilidad por días</span></button>
       <button data-view="buscar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><span>Buscar espacio</span></button>
       <button data-view="consultas"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h10"/></svg><span>Consultas</span></button>
       <button data-view="espacios"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg><span>Espacios</span></button>
